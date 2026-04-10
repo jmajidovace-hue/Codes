@@ -24,10 +24,10 @@ app.add_middleware(
 # Route for frontend index
 @app.get("/")
 async def root():
-    return FileResponse("../frontend/index.html")
+    return FileResponse("frontend/index.html")
 
 # Serve the static CSS/JS files
-app.mount("/static", StaticFiles(directory="../frontend"), name="static")
+app.mount("/static", StaticFiles(directory="frontend"), name="static")
 
 @app.get("/api/scan/div-insight")
 async def run_div_insight_scan():
