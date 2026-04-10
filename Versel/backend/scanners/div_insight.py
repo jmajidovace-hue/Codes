@@ -74,19 +74,10 @@ def format_sse(data: str) -> str:
     msg += "\n"
     return msg
 
-import requests
-
 def get_history_silent_and_smart(user_ticker):
-    # Use terminal session with browser agent to avoid simple bans
-    session = requests.Session()
-    session.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Safari/537.36'
-    })
-
     candidates = []
     candidates.append(user_ticker)
     
-    # ... logic for candidates omitted for brevity ...
     if "-" in user_ticker:
         base, suffix = user_ticker.split("-", 1)
         candidates.append(f"{base}-P{suffix}")
@@ -102,7 +93,7 @@ def get_history_silent_and_smart(user_ticker):
 
     for ticker_to_try in candidates:
         try:
-            stock = yf.Ticker(ticker_to_try, session=session)
+            stock = yf.Ticker(ticker_to_try)
             hist = stock.history(period="5d", auto_adjust=False)
 
             if not hist.empty:
