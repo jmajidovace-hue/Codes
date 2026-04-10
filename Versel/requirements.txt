@@ -7,3 +7,4 @@ matplotlib
 python-multipart
 openpyxl
 requests
+curl_cffi
