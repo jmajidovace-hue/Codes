@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Antigravity Trading Hub</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <nav class="sidebar">
+            <div class="logo">
+                <h2>ANTIGRAVITY</h2>
+                <span>TRADING HUB</span>
+            </div>
+            <ul class="nav-links">
+                <li class="active" data-target="div-insight-tab">Dividend Insight</li>
+                <li data-target="div-finder-tab">Dividend Finder</li>
+                <li data-target="rebalance-scan-tab">Rebalance Scan</li>
+                <li data-target="rebalance-map-tab">Rebalance Map</li>
+                <li data-target="calculators-tab">Calculators</li>
+            </ul>
+        </nav>
+
+        <!-- Main Content Area -->
+        <main class="content-area">
+            
+            <!-- 1. DIVIDEND INSIGHT SCANNER -->
+            <section id="div-insight-tab" class="tab-content active">
+                <header>
+                    <h1>Global Dividend Scan</h1>
+                    <button id="btn-run-div-scan" class="action-btn glow-btn">Start Market Scan</button>
+                </header>
+                <div class="terminal-container">
+                    <pre id="div-insight-terminal">Awaiting scan initialization...</pre>
+                </div>
+            </section>
+
+            <!-- 2. DIVIDEND FINDER CHART -->
+            <section id="div-finder-tab" class="tab-content">
+                <header>
+                    <h1>Specific Dividend Finder</h1>
+                    <div class="input-group">
+                        <input type="text" id="div-finder-ticker" placeholder="Enter Ticker (e.g. NLY-F)">
+                        <button id="btn-run-div-finder" class="action-btn">Analyze Target</button>
+                    </div>
+                </header>
+                <div class="chart-container">
+                    <div class="loader hidden" id="div-finder-loader">Processing...</div>
+                    <img id="div-finder-image" class="result-image" alt="Dividend Target Map" style="display:none;" />
+                </div>
+            </section>
+
+            <!-- 3. REBALANCE SCANNER -->
+            <section id="rebalance-scan-tab" class="tab-content">
+                <header>
+                    <h1>EOM Rebalancing Matrix</h1>
+                    <button id="btn-run-rebalance-scan" class="action-btn glow-btn">Run Master EOM Scan</button>
+                </header>
+                <div class="terminal-container">
+                    <pre id="rebalance-terminal">Awaiting scan initialization...</pre>
+                </div>
+            </section>
+
+            <!-- 4. REBALANCE MAPPER CHART -->
+            <section id="rebalance-map-tab" class="tab-content">
+                <header>
+                    <h1>EOM Rebalance Map</h1>
+                    <div class="input-group">
+                        <input type="text" id="rebalance-mapper-ticker" placeholder="Enter Ticker (e.g. NLY-F)">
+                        <button id="btn-run-rebalance-mapper" class="action-btn">Map EOM Targets</button>
+                    </div>
+                </header>
+                <div class="chart-container">
+                    <div class="loader hidden" id="rebalance-mapper-loader">Processing...</div>
+                    <img id="rebalance-mapper-image" class="result-image" alt="Rebalance target map" style="display:none;" />
+                </div>
+            </section>
+
+            <!-- 5. TRADE CALCULATORS -->
+            <section id="calculators-tab" class="tab-content">
+                <header>
+                    <h1>Trade Risk Calculators</h1>
+                </header>
+                
+                <div class="calc-grid">
+                    <!-- SMI Calculator -->
+                    <div class="glass-panel">
+                        <h2>SMI Calculator (Short)</h2>
+                        <form id="smi-form">
+                            <label>Rates File (CSV/Excel)</label>
+                            <input type="file" id="smi-file" accept=".csv, .xlsx, .xls" required>
+                            
+                            <label>Ticker</label>
+                            <input type="text" id="smi-ticker" placeholder="ABR-D" required>
+                            
+                            <label>Shares</label>
+                            <input type="number" id="smi-shares" required>
+                            
+                            <label>Price ($)</label>
+                            <input type="number" step="0.01" id="smi-price" required>
+                            
+                            <label>Days Held</label>
+                            <input type="number" id="smi-days" required>
+                            
+                            <label>Target Profit ($)</label>
+                            <input type="number" step="0.01" id="smi-profit" required>
+                            
+                            <button type="submit" class="action-btn w-full mt-4">Calculate SMI Cost</button>
+                        </form>
+                        <div id="smi-result" class="result-box hidden"></div>
+                    </div>
+
+                    <!-- Long Commission Calculator -->
+                    <div class="glass-panel">
+                        <h2>Long Commission (8% Base)</h2>
+                        <form id="long-form">
+                            <label>Ticker</label>
+                            <input type="text" id="long-ticker" placeholder="ABR-D" required>
+                            
+                            <label>Shares</label>
+                            <input type="number" id="long-shares" required>
+                            
+                            <label>Price ($)</label>
+                            <input type="number" step="0.01" id="long-price" required>
+                            
+                            <label>Days Held</label>
+                            <input type="number" id="long-days" required>
+                            
+                            <label>Target Profit ($)</label>
+                            <input type="number" step="0.01" id="long-profit" required>
+                            
+                            <button type="submit" class="action-btn w-full mt-4">Calculate Long Cost</button>
+                        </form>
+                        <div id="long-result" class="result-box hidden"></div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+    <script src="/static/app.js"></script>
+</body>
+</html>
