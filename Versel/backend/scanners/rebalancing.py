@@ -87,7 +87,15 @@ def calculate_volumes(df, loc):
     vol_post = df['Volume'].iloc[loc+1:loc+4].mean()
     return vol_base, vol_prior, vol_day, vol_post
 
+import requests
+
 async def scan_rebalancing():
+    # Use terminal session with browser agent to avoid simple bans
+    session = requests.Session()
+    session.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Safari/537.36'
+    })
+
     yf_tickers = [translate_ticker(t) for t in raw_tickers]
     yield format_sse(f"Fetching 6 MONTHS of data & checking PFF eligibility (>4M shares) for {len(yf_tickers)} preferreds...")
     
@@ -102,9 +110,9 @@ async def scan_rebalancing():
         if i > 0 and i % 50 == 0:
             yield format_sse(f"  ... checked {i}/{len(yf_tickers)} ...")
         
-        await asyncio.sleep(0.05) # Yield control
+        await asyncio.sleep(0.1) # Yield control
         try:
-            tkr_obj = yf.Ticker(ticker)
+            tkr_obj = yf.Ticker(ticker, session=session)
             shares_out = None
             try:
                 shares_out = tkr_obj.fast_info.get('shares')
@@ -118,8 +126,8 @@ async def scan_rebalancing():
                 excluded_count += 1
                 continue
 
-            # Standard yf.download
-            temp_df = yf.download(ticker, start=start_date, end=end_date, actions=True, progress=False)
+            # yf.download supports session as well
+            temp_df = yf.download(ticker, start=start_date, end=end_date, actions=True, progress=False, session=session)
             if isinstance(temp_df.columns, pd.MultiIndex):
                 temp_df.columns = temp_df.columns.get_level_values(0)
 
