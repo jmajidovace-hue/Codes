@@ -5,6 +5,13 @@ import warnings
 import logging
 import asyncio
 import io
+import requests
+
+# Set up a requests session to mimic a browser, preventing Vercel IPs from being blocked by Yahoo
+yf_session = requests.Session()
+yf_session.headers.update({
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+})
 
 # --- 1. FORCE YFINANCE TO BE COMPLETELY SILENT ---
 warnings.filterwarnings("ignore")
@@ -74,19 +81,10 @@ def format_sse(data: str) -> str:
     msg += "\n"
     return msg
 
-import requests
-
 def get_history_silent_and_smart(user_ticker):
-    # Use terminal session with browser agent to avoid simple bans
-    session = requests.Session()
-    session.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Safari/537.36'
-    })
-
     candidates = []
     candidates.append(user_ticker)
     
-    # ... logic for candidates omitted for brevity ...
     if "-" in user_ticker:
         base, suffix = user_ticker.split("-", 1)
         candidates.append(f"{base}-P{suffix}")
@@ -102,7 +100,7 @@ def get_history_silent_and_smart(user_ticker):
 
     for ticker_to_try in candidates:
         try:
-            stock = yf.Ticker(ticker_to_try, session=session)
+            stock = yf.Ticker(ticker_to_try, session=yf_session)
             hist = stock.history(period="5d", auto_adjust=False)
 
             if not hist.empty:
@@ -380,7 +378,7 @@ async def scan_div_insight():
         if i > 0 and i % 50 == 0:
             yield format_sse(f"  ... checked {i}/{len(VALID_TICKERS)} ...")
         
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.05)
         stock, hist = get_history_silent_and_smart(ticker)
 
         if stock is None or hist is None or hist.empty:
