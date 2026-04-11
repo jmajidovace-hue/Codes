@@ -371,7 +371,7 @@ async def scan_div_insight():
         if i > 0 and i % 50 == 0:
             yield format_sse(f"  ... checked {i}/{len(VALID_TICKERS)} ...")
         
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.05)
         stock, hist = get_history_silent_and_smart(ticker)
 
         if stock is None or hist is None or hist.empty:
