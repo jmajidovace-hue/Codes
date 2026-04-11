@@ -4,11 +4,11 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 import os
 
-from scanners.div_insight import scan_div_insight
-from scanners.rebalancing import scan_rebalancing
-from charts.div_finder import analyze_dividend_recovery_chart
-from charts.rebalance_mapper import analyze_rebalancing_chart
-from calculators.trade_calc import calculate_smi, calculate_long_commission
+from backend.scanners.div_insight import scan_div_insight
+from backend.scanners.rebalancing import scan_rebalancing
+from backend.charts.div_finder import analyze_dividend_recovery_chart
+from backend.charts.rebalance_mapper import analyze_rebalancing_chart
+from backend.calculators.trade_calc import calculate_smi, calculate_long_commission
 
 app = FastAPI(title="Trading Insights API")
 
@@ -21,13 +21,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Get the absolute path for the frontend directory
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
+
 # Route for frontend index
 @app.get("/")
 async def root():
-    return FileResponse("../frontend/index.html")
+    return FileResponse(os.path.join(FRONTEND_DIR, "index.html"))
 
 # Serve the static CSS/JS files
-app.mount("/static", StaticFiles(directory="../frontend"), name="static")
+app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
 
 @app.get("/api/scan/div-insight")
 async def run_div_insight_scan():
