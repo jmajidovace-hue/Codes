@@ -102,7 +102,7 @@ async def scan_rebalancing():
         if i > 0 and i % 50 == 0:
             yield format_sse(f"  ... checked {i}/{len(yf_tickers)} ...")
         
-        await asyncio.sleep(0.1) # Yield control
+        await asyncio.sleep(0.05) # Yield control
         try:
             tkr_obj = yf.Ticker(ticker)
             shares_out = None
