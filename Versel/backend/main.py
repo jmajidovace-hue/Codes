@@ -47,10 +47,14 @@ async def run_rebalancing_scan():
 async def get_div_finder_chart(ticker: str):
     """Returns the base64 encoded image for a ticker div analysis."""
     try:
-        b64_image = analyze_dividend_recovery_chart(ticker.upper())
-        if not b64_image:
+        result = analyze_dividend_recovery_chart(ticker.upper())
+        if not result:
             raise HTTPException(status_code=404, detail="Ticker data not found.")
-        return {"summary": f"Target Map generated for {ticker.upper()}", "image": b64_image}
+        return {
+            "summary": f"Target Map generated for {ticker.upper()}",
+            "image": result["image"],
+            "stats": result["stats"]
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -58,10 +62,14 @@ async def get_div_finder_chart(ticker: str):
 async def get_rebalance_mapper_chart(ticker: str):
     """Returns the base64 encoded image for a ticker rebalancing map."""
     try:
-        b64_image = analyze_rebalancing_chart(ticker.upper())
-        if not b64_image:
+        result = analyze_rebalancing_chart(ticker.upper())
+        if not result:
             raise HTTPException(status_code=404, detail="Ticker data not found.")
-        return {"summary": f"Rebalancing Map generated for {ticker.upper()}", "image": b64_image}
+        return {
+            "summary": f"Rebalancing Map generated for {ticker.upper()}",
+            "image": result["image"],
+            "stats": result["stats"]
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
