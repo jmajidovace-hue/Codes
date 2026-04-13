@@ -6,6 +6,7 @@ import logging
 import asyncio
 import io
 from curl_cffi import requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Set up a requests session using curl_cffi to mimic a REAL browser's TLS fingerprint.
 # This prevents Vercel IPs from being blocked by Yahoo's Cloudflare protection.
@@ -359,6 +360,27 @@ def analyze_ticker(user_ticker_name, hist, stock_obj):
         "Smooth?": smooth_status
     }
 
+def process_single_ticker(ticker):
+    stock, hist = get_history_silent_and_smart(ticker)
+    if stock is None or hist is None or hist.empty:
+        return ticker, "not_found", None
+    
+    dividends = stock.dividends
+    if dividends.empty:
+        return ticker, "no_divs", None
+        
+    recent_dividends = dividends.sort_index(ascending=False).head(10)
+    if len(recent_dividends) < 3:
+        return ticker, "low_history", None
+        
+    stats = analyze_ticker(ticker, hist, stock)
+    if stats == "OVER_PRICE":
+        return ticker, "over_price", None
+    elif stats:
+        return ticker, "success", stats
+    else:
+        return ticker, "low_history", None
+
 async def scan_div_insight():
     yield format_sse("--- 🚀 STARTING FULL MARKET SCAN (UPCOMING FOCUS) ---")
     yield format_sse(f"Scanning {len(VALID_TICKERS)} tickers...")
@@ -372,36 +394,31 @@ async def scan_div_insight():
     skipped_low_history = []
     skipped_over_price = []
 
-    for i, ticker in enumerate(VALID_TICKERS):
-        if i > 0 and i % 50 == 0:
-            yield format_sse(f"  ... checked {i}/{len(VALID_TICKERS)} ...")
+    # Process tickers concurrently to bypass Vercel's strict 10s-60s Serverless timeout
+    # Reduced max_workers to 10 to avoid triggering Yahoo burst rate limits
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        futures = {executor.submit(process_single_ticker, ticker): ticker for ticker in VALID_TICKERS}
+        completed = 0
         
-        await asyncio.sleep(0.05)
-        stock, hist = get_history_silent_and_smart(ticker)
-
-        if stock is None or hist is None or hist.empty:
-            skipped_not_found.append(ticker)
-            continue
-
-        dividends = stock.dividends
-        if dividends.empty:
-            skipped_no_divs.append(ticker)
-            continue
-
-        recent_dividends = dividends.sort_index(ascending=False).head(10)
-        if len(recent_dividends) < 3:
-            skipped_low_history.append(ticker)
-            continue
-
-        stats = analyze_ticker(ticker, hist, stock)
-        if stats == "OVER_PRICE":
-            skipped_over_price.append(ticker)
-        elif stats:
-            results.append(stats)
-            # Optionally yield a small update for every find
-            # yield format_sse(f"  Found target: {ticker}")
-        else:
-            skipped_low_history.append(ticker)
+        for future in as_completed(futures):
+            try:
+                ticker, status, stats = future.result()
+                
+                if status == "not_found": skipped_not_found.append(ticker)
+                elif status == "no_divs": skipped_no_divs.append(ticker)
+                elif status == "low_history": skipped_low_history.append(ticker)
+                elif status == "over_price": skipped_over_price.append(ticker)
+                elif status == "success": results.append(stats)
+            except Exception as e:
+                # Log any unexpected errors to Vercel console for debugging
+                print(f"Error processing ticker {futures[future]}: {e}")
+                skipped_not_found.append(futures[future])
+            
+            completed += 1
+            if completed % 50 == 0:
+                yield format_sse(f"  ... checked {completed}/{len(VALID_TICKERS)} ...")
+                # Yield control to the event loop so SSE flushes to the client immediately
+                await asyncio.sleep(0.01)
 
     yield format_sse(f"\n  ... DONE! Scanned {len(VALID_TICKERS)} tickers.")
     yield format_sse("  --------------------------------------------------")

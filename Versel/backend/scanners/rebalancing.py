@@ -4,13 +4,12 @@ import numpy as np
 from datetime import datetime, timedelta
 import warnings
 import asyncio
-import requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from curl_cffi import requests
 
-# Set up a requests session to mimic a browser, preventing Vercel IPs from being blocked by Yahoo
-yf_session = requests.Session()
-yf_session.headers.update({
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
-})
+# Set up a requests session using curl_cffi to mimic a REAL browser's TLS fingerprint.
+# This prevents Vercel IPs from being blocked by Yahoo's Cloudflare protection.
+yf_session = requests.Session(impersonate="chrome110")
 warnings.filterwarnings('ignore')
 
 raw_tickers = [
@@ -93,6 +92,38 @@ def calculate_volumes(df, loc):
     vol_post = df['Volume'].iloc[loc+1:loc+4].mean()
     return vol_base, vol_prior, vol_day, vol_post
 
+def fetch_rebalancing_ticker(ticker, start_date, end_date):
+    try:
+        tkr_obj = yf.Ticker(ticker, session=yf_session)
+        shares_out = None
+        try:
+            shares_out = tkr_obj.fast_info.get('shares')
+        except Exception:
+            try:
+                shares_out = tkr_obj.info.get('sharesOutstanding')
+            except Exception:
+                pass
+
+        if shares_out is not None and not pd.isna(shares_out) and shares_out < 4000000:
+            return ticker, "excluded", None
+
+        # Standard yf.download using the session to prevent blocks
+        temp_df = yf.download(ticker, start=start_date, end=end_date, actions=True, progress=False, session=yf_session)
+        if isinstance(temp_df.columns, pd.MultiIndex):
+            temp_df.columns = temp_df.columns.get_level_values(0)
+
+        temp_df.index = pd.to_datetime(temp_df.index, errors='coerce')
+        temp_df = temp_df[temp_df.index.notnull()]
+
+        if not temp_df.empty and len(temp_df) > 20 and 'Close' in temp_df.columns and 'Volume' in temp_df.columns:
+            if float(temp_df['Close'].iloc[-1]) <= 30.0:
+                if 'Dividends' not in temp_df.columns:
+                    temp_df['Dividends'] = 0.0
+                return ticker, "success", temp_df
+        return ticker, "failed", None
+    except Exception:
+        return ticker, "failed", None
+
 async def scan_rebalancing():
     yf_tickers = [translate_ticker(t) for t in raw_tickers]
     yield format_sse(f"Fetching 6 MONTHS of data & checking PFF eligibility (>4M shares) for {len(yf_tickers)} preferreds...")
@@ -103,44 +134,28 @@ async def scan_rebalancing():
     clean_data = {}
     excluded_count = 0
 
-    # Stream ticker processing to avoid freeze
-    for i, ticker in enumerate(yf_tickers):
-        if i > 0 and i % 50 == 0:
-            yield format_sse(f"  ... checked {i}/{len(yf_tickers)} ...")
+    # Process tickers concurrently to bypass Vercel's strict 10s-60s Serverless timeout
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        futures = {executor.submit(fetch_rebalancing_ticker, ticker, start_date, end_date): ticker for ticker in yf_tickers}
+        completed = 0
         
-        await asyncio.sleep(0.05) # Yield control
-        try:
-            tkr_obj = yf.Ticker(ticker, session=yf_session)
-            shares_out = None
+        for future in as_completed(futures):
             try:
-                shares_out = tkr_obj.fast_info.get('shares')
-            except Exception:
-                try:
-                    shares_out = tkr_obj.info.get('sharesOutstanding')
-                except Exception:
-                    pass
+                ticker, status, result = future.result()
+                
+                if status == "excluded":
+                    excluded_count += 1
+                elif status == "success":
+                    clean_data[ticker] = result
+            except Exception as e:
+                # Log any unexpected errors to Vercel console for debugging
+                print(f"Error processing rebalance ticker {futures[future]}: {e}")
+                
+            completed += 1
+            if completed % 25 == 0:
+                yield format_sse(f"  ... checked {completed}/{len(yf_tickers)} ...")
+                await asyncio.sleep(0.01)
 
-            if shares_out is not None and not pd.isna(shares_out) and shares_out < 4000000:
-                excluded_count += 1
-                continue
-
-            # Standard yf.download using the session to prevent blocks
-            temp_df = yf.download(ticker, start=start_date, end=end_date, actions=True, progress=False, session=yf_session)
-            if isinstance(temp_df.columns, pd.MultiIndex):
-                temp_df.columns = temp_df.columns.get_level_values(0)
-
-            temp_df.index = pd.to_datetime(temp_df.index, errors='coerce')
-            temp_df = temp_df[temp_df.index.notnull()]
-
-            if not temp_df.empty and len(temp_df) > 20 and 'Close' in temp_df.columns and 'Volume' in temp_df.columns:
-                # Use scalar value access to prevent ambiguity
-                if float(temp_df['Close'].iloc[-1]) <= 30.0:
-                    if 'Dividends' not in temp_df.columns:
-                        temp_df['Dividends'] = 0.0
-                    clean_data[ticker] = temp_df
-        except Exception:
-            continue
-            
     yield format_sse(f"Excluded {excluded_count} tickers for having < 4 Million shares.")
     yield format_sse(f"Successfully processed {len(clean_data)} valid PFF-eligible preferred stocks trading under $30.")
 
