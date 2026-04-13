@@ -35,6 +35,7 @@ SECTOR_ETF_MAP = {
 def get_sector_info(user_ticker, info_dict):
     sector = info_dict.get('sector')
     industry = info_dict.get('industry')
+    if not sector:
         try:
             base_ticker = user_ticker.split('-')[0].split('.')[0]
             base_info = yf.Ticker(base_ticker).info

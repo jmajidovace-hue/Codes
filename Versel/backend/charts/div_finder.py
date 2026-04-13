@@ -51,6 +51,9 @@ SECTOR_ETF_MAP = {
     "Communication Services": "XLC"
 }
 
+def get_sector_info(user_ticker, info_dict):
+    sector = info_dict.get('sector')
+    industry = info_dict.get('industry')
     if not sector:
         try:
             base_ticker = user_ticker.split('-')[0].split('.')[0]
@@ -60,7 +63,6 @@ SECTOR_ETF_MAP = {
         except:
             sector = 'Unknown'
             industry = 'Unknown'
-
     return sector, industry
 
 def get_benchmark_ticker(sector, industry):
