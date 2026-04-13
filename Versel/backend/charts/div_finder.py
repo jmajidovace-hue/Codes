@@ -9,6 +9,11 @@ import matplotlib.dates as mdates
 from datetime import datetime, timedelta
 import io
 import base64
+from curl_cffi import requests
+
+# Set up a requests session using curl_cffi to mimic a REAL browser's TLS fingerprint.
+# This ensures consistency with yfinance and bypasses Yahoo blocks on Vercel.
+yf_session = requests.Session(impersonate="chrome110")
 
 warnings.filterwarnings("ignore")
 
@@ -57,7 +62,7 @@ def get_sector_info(user_ticker, info_dict):
     if not sector:
         base_ticker = user_ticker.split('-')[0].split('.')[0]
         try:
-            base_info = yf.Ticker(base_ticker).info
+            base_info = yf.Ticker(base_ticker, session=yf_session).info
             sector = base_info.get('sector', 'Unknown')
             industry = base_info.get('industry', 'Unknown')
         except:
@@ -73,30 +78,22 @@ def get_benchmark_ticker(sector, industry):
         return SECTOR_ETF_MAP[sector]
     return "SPY"
 
-import requests
-
 def get_valid_ticker_data(user_ticker):
-    # Use a session with a browser-like user agent to bypass rate limits
-    session = requests.Session()
-    session.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36'
-    })
-    
-    stock = yf.Ticker(user_ticker, session=session)
+    stock = yf.Ticker(user_ticker, session=yf_session)
     hist = stock.history(period="1mo", auto_adjust=False)
 
     if not hist.empty:
-        return stock, user_ticker, session
+        return stock, user_ticker
 
     if "-" in user_ticker:
         base, suffix = user_ticker.split("-", 1)
         alt_ticker = f"{base}-P{suffix}"
-        stock_alt = yf.Ticker(alt_ticker, session=session)
+        stock_alt = yf.Ticker(alt_ticker, session=yf_session)
         hist_alt = stock_alt.history(period="1mo", auto_adjust=False)
         if not hist_alt.empty:
-            return stock_alt, alt_ticker, session
+            return stock_alt, alt_ticker
 
-    return None, None, None
+    return None, None
 
 def get_upcoming_dividend(stock, dividends_hist):
     today = pd.Timestamp.now().normalize()
@@ -265,7 +262,7 @@ def generate_plot_base64(ticker, stock_hist, vix_hist, dividends_hist, stats_dic
     return image_base64
 
 def analyze_dividend_recovery_chart(ticker_input):
-    stock, valid_symbol, session = get_valid_ticker_data(ticker_input)
+    stock, valid_symbol = get_valid_ticker_data(ticker_input)
     if stock is None:
         return None
 
@@ -276,10 +273,10 @@ def analyze_dividend_recovery_chart(ticker_input):
     sector, industry = get_sector_info(valid_symbol, stock.info)
     benchmark_ticker = get_benchmark_ticker(sector, industry)
 
-    benchmark = yf.Ticker(benchmark_ticker, session=session)
+    benchmark = yf.Ticker(benchmark_ticker, session=yf_session)
     bench_hist = benchmark.history(period="2y", auto_adjust=False)
 
-    vix = yf.Ticker("^VIX", session=session)
+    vix = yf.Ticker("^VIX", session=yf_session)
     vix_hist = vix.history(period="2y", auto_adjust=False)
 
     if dividends.empty:
