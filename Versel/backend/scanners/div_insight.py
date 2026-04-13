@@ -5,13 +5,11 @@ import warnings
 import logging
 import asyncio
 import io
-import requests
+from curl_cffi import requests
 
-# Set up a requests session to mimic a browser, preventing Vercel IPs from being blocked by Yahoo
-yf_session = requests.Session()
-yf_session.headers.update({
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
-})
+# Set up a requests session using curl_cffi to mimic a REAL browser's TLS fingerprint.
+# This prevents Vercel IPs from being blocked by Yahoo's Cloudflare protection.
+yf_session = requests.Session(impersonate="chrome110")
 
 # --- 1. FORCE YFINANCE TO BE COMPLETELY SILENT ---
 warnings.filterwarnings("ignore")
