@@ -12,9 +12,7 @@ import io
 import base64
 from curl_cffi import requests
 
-# Set up a requests session using curl_cffi to mimic a REAL browser's TLS fingerprint.
-# This ensures consistency with yfinance and bypasses Yahoo blocks on Vercel.
-yf_session = requests.Session(impersonate="chrome110")
+# yf_session = requests.Session(impersonate="chrome110") # Disabling manual session as per YF error
 
 warnings.filterwarnings("ignore")
 
@@ -39,7 +37,7 @@ def get_sector_info(user_ticker, info_dict):
     if not sector:
         base_ticker = user_ticker.split('-')[0].split('.')[0]
         try:
-            base_info = yf.Ticker(base_ticker, session=yf_session).info
+            base_info = yf.Ticker(base_ticker).info
             sector = base_info.get('sector', 'Unknown')
             industry = base_info.get('industry', 'Unknown')
         except:
@@ -52,13 +50,13 @@ def get_benchmark_ticker(sector, industry):
     return "SPY"
 
 def get_valid_ticker_data(user_ticker):
-    stock = yf.Ticker(user_ticker, session=yf_session)
+    stock = yf.Ticker(user_ticker)
     hist = stock.history(period="1mo", auto_adjust=False)
     if not hist.empty: return stock, user_ticker
     if "-" in user_ticker:
         base, suffix = user_ticker.split("-", 1)
         alt_ticker = f"{base}-P{suffix}"
-        stock_alt = yf.Ticker(alt_ticker, session=yf_session)
+        stock_alt = yf.Ticker(alt_ticker)
         hist_alt = stock_alt.history(period="1mo", auto_adjust=False)
         if not hist_alt.empty: return stock_alt, alt_ticker
     return None, None
@@ -77,7 +75,7 @@ def generate_rebalancing_plot_base64(ticker, stock_hist, vix_hist, stats_dict):
     ax2 = fig.add_subplot(gs[1], sharex=ax1)
     ax3 = fig.add_subplot(gs[2], sharex=ax1)
 
-    fig.suptitle(f"\ud83c\udfaf EOM Rebalancing Map: {ticker}", fontsize=18, fontweight='bold')
+    fig.suptitle(f"EOM Rebalancing Map: {ticker}", fontsize=18, fontweight='bold')
 
     up = plot_hist[plot_hist.Close >= plot_hist.Open]
     down = plot_hist[plot_hist.Close < plot_hist.Open]
@@ -128,7 +126,7 @@ def generate_rebalancing_plot_base64(ticker, stock_hist, vix_hist, stats_dict):
     ax3.legend(loc="upper left", fontsize=10)
 
     stats_text = (
-        f"\ud83d\udcca REBALANCING PROFILE\n"
+        f"REBALANCING PROFILE\n"
         f"------------------------\n"
         f"Primary Action: {stats_dict.get('move_profile', 'Unknown')}\n"
         f"Avg EOM Move:   {stats_dict.get('avg_eom_move', 0.0):+.2f}\n"
@@ -159,7 +157,7 @@ def analyze_rebalancing_chart(ticker_input):
     sector, industry = get_sector_info(valid_symbol, stock.info)
     benchmark_ticker = get_benchmark_ticker(sector, industry)
 
-    vix = yf.Ticker("^VIX", session=yf_session)
+    vix = yf.Ticker("^VIX")
     vix_hist = vix.history(period="2y", auto_adjust=False)
 
     if hist.index.tz is not None: hist.index = hist.index.tz_localize(None)
@@ -261,10 +259,10 @@ def analyze_rebalancing_chart(ticker_input):
     avg_vix = np.nanmean(vix_levels) if vix_levels else 15.0
     current_vix = vix_hist['Close'].iloc[-1]
 
-    if dumps > spikes and dumps >= 3: profile = "Predominantly DUMPED at EOM \ud83e\ude78"
-    elif spikes > dumps and spikes >= 3: profile = "Predominantly ACCUMULATED at EOM \ud83d\ude80"
-    elif dumps > 0 or spikes > 0: profile = "Mixed / Unpredictable \u2696\ufe0f"
-    else: profile = "No Significant Action \ud83d\ude34"
+    if dumps > spikes and dumps >= 3: profile = "Predominantly DUMPED at EOM"
+    elif spikes > dumps and spikes >= 3: profile = "Predominantly ACCUMULATED at EOM"
+    elif dumps > 0 or spikes > 0: profile = "Mixed / Unpredictable"
+    else: profile = "No Significant Action"
 
     stats_dict = {
         'industry': industry, 'sector': sector, 'benchmark_ticker': benchmark_ticker,

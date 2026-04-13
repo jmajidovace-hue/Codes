@@ -73,30 +73,22 @@ def get_benchmark_ticker(sector, industry):
         return SECTOR_ETF_MAP[sector]
     return "SPY"
 
-import requests
-
 def get_valid_ticker_data(user_ticker):
-    # Use a session with a browser-like user agent to bypass rate limits
-    session = requests.Session()
-    session.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36'
-    })
-    
-    stock = yf.Ticker(user_ticker, session=session)
+    stock = yf.Ticker(user_ticker)
     hist = stock.history(period="1mo", auto_adjust=False)
 
     if not hist.empty:
-        return stock, user_ticker, session
+        return stock, user_ticker
 
     if "-" in user_ticker:
         base, suffix = user_ticker.split("-", 1)
         alt_ticker = f"{base}-P{suffix}"
-        stock_alt = yf.Ticker(alt_ticker, session=session)
+        stock_alt = yf.Ticker(alt_ticker)
         hist_alt = stock_alt.history(period="1mo", auto_adjust=False)
         if not hist_alt.empty:
-            return stock_alt, alt_ticker, session
+            return stock_alt, alt_ticker
 
-    return None, None, None
+    return None, None
 
 def get_upcoming_dividend(stock, dividends_hist):
     today = pd.Timestamp.now().normalize()
@@ -135,120 +127,61 @@ def get_upcoming_dividend(stock, dividends_hist):
 
     return next_date, date_source
 
-
-def generate_plot_base64(ticker, stock_hist, vix_hist, dividends_hist, stats_dict):
+def generate_plot_base64(ticker, stock_hist, vix_hist, dividends, stats_dict):
     plot_hist = stock_hist.tail(252).copy()
     start_date = plot_hist.index[0]
     plot_vix = vix_hist.loc[start_date:].copy()
-    plot_bench = stats_dict['benchmark_hist'].loc[start_date:].copy() if stats_dict.get('benchmark_hist') is not None else None
+    plot_divs = dividends[dividends.index >= start_date].copy()
+    
     historical_cycles = stats_dict.get('historical_cycles', [])
-
-    tz_info = plot_hist.index.tz
-    today = pd.Timestamp.now().tz_localize('UTC') if tz_info is None else pd.Timestamp.now().tz_localize(tz_info).tz_convert(tz_info)
 
     fig = plt.figure(figsize=(14, 10))
     gs = fig.add_gridspec(3, 1, height_ratios=[4, 1.2, 1.2])
-
     ax1 = fig.add_subplot(gs[0])
     ax2 = fig.add_subplot(gs[1], sharex=ax1)
     ax3 = fig.add_subplot(gs[2], sharex=ax1)
 
-    fig.suptitle(f"🎯 Precision Target Map: {ticker}", fontsize=18, fontweight='bold')
+    fig.suptitle(f"Dividend Performance Analysis: {ticker}", fontsize=18, fontweight='bold')
 
+    # Main Chart (Price)
     up = plot_hist[plot_hist.Close >= plot_hist.Open]
     down = plot_hist[plot_hist.Close < plot_hist.Open]
-
     ax1.vlines(up.index, up.Low, up.High, color='black', linewidth=0.8, zorder=2)
     ax1.vlines(down.index, down.Low, down.High, color='black', linewidth=0.8, zorder=2)
     ax1.bar(up.index, up.Close - up.Open, width=0.9, bottom=up.Open, color='green', edgecolor='black', linewidth=0.5, zorder=3)
     ax1.bar(down.index, down.Open - down.Close, width=0.9, bottom=down.Close, color='red', edgecolor='black', linewidth=0.5, zorder=3)
 
-    major_support = plot_hist['Low'].min()
-    recent_support = plot_hist['Low'].tail(60).min()
-
-    ax1.axhline(y=major_support, color='#8c564b', linestyle='--', linewidth=1.5, alpha=0.7, zorder=1, label=f'1Y Major Support (${major_support:.2f})')
-    if (recent_support - major_support) / major_support > 0.015:
-        ax1.axhline(y=recent_support, color='#7f7f7f', linestyle=':', linewidth=1.5, alpha=0.8, zorder=1, label=f'3M Recent Support (${recent_support:.2f})')
-
-    added_hist_legend = False
+    # Recovery markers
     for cycle in historical_cycles:
-        if cycle['ex_date'] >= start_date:
-            ax1.axvline(x=cycle['ex_date'], color='grey', linestyle=':', alpha=0.5, zorder=1)
-            if cycle['rally_start_date']:
-                ax1.scatter(cycle['rally_start_date'], cycle['rally_start_price'], color='green', marker='^', s=80, zorder=5, label='Hist. Bottom (Full Move)' if not added_hist_legend else "")
-            if cycle['sweet_dt'] and cycle['sweet_dt'] != cycle['rally_start_date']:
-                ax1.scatter(cycle['sweet_dt'], cycle['sweet_px'], color='dodgerblue', marker='*', s=120, zorder=6, label='Hist. Momentum Entry' if not added_hist_legend else "")
-            if cycle['div_entry_date']:
-                ax1.scatter(cycle['div_entry_date'], cycle['div_entry_price'], color='orange', marker='^', s=80, zorder=5, label='Hist. Div Entry' if not added_hist_legend else "")
-            if cycle['rally_start_date'] and cycle['pre_div_date']:
-                ax1.plot([cycle['rally_start_date'], cycle['pre_div_date']], [cycle['rally_start_price'], cycle['pre_div_price']], color='blue', linestyle=':', alpha=0.6, linewidth=2, zorder=3)
-            added_hist_legend = True
+        ex_dt = pd.to_datetime(cycle['ex_date'])
+        if ex_dt in plot_hist.index:
+            ax1.axvline(x=ex_dt, color='blue', linestyle='--', alpha=0.3, zorder=1)
+            ax1.scatter(ex_dt, cycle['ex_day_open'], color='blue', marker='v', s=40, zorder=5)
 
-    future_end = today
-    if stats_dict.get('next_ex_date'):
-        ex_date_raw = pd.Timestamp(stats_dict['next_ex_date'])
-        if tz_info is not None: ex_date_raw = ex_date_raw.tz_localize(tz_info)
-        rally_target_raw = pd.Timestamp(stats_dict['target_rally_date'])
-        if tz_info is not None: rally_target_raw = rally_target_raw.tz_localize(tz_info)
-        sweet_target_raw = pd.Timestamp(stats_dict['target_sweet_date'])
-        if tz_info is not None: sweet_target_raw = sweet_target_raw.tz_localize(tz_info)
-        div_target_raw = pd.Timestamp(stats_dict['target_div_date'])
-        if tz_info is not None: div_target_raw = div_target_raw.tz_localize(tz_info)
-
-        future_end = ex_date_raw + pd.Timedelta(days=max(20, int(stats_dict['avg_recovery']) + 5))
-        ax1.set_xlim(start_date, future_end)
-
-        ax1.axvline(ex_date_raw, color='red', linestyle='--', linewidth=2, label='Upcoming Ex-Date', zorder=1)
-        ax1.axvline(rally_target_raw, color='green', linestyle='-', linewidth=1.5, alpha=0.8, label='Target: Full Rally Bottom', zorder=1)
-        ax1.axvline(sweet_target_raw, color='dodgerblue', linestyle='-', linewidth=2, alpha=0.9, label='Target: Momentum Entry (Big Move)', zorder=2)
-        ax1.axvline(div_target_raw, color='orange', linestyle='-', linewidth=1.5, alpha=0.8, label='Target: Upcoming Div Dip', zorder=1)
-
-        recovery_end = ex_date_raw + pd.Timedelta(days=stats_dict['avg_recovery'])
-        ax1.axvspan(ex_date_raw, recovery_end, color='green', alpha=0.15, label=f'BE Recovery ({stats_dict["avg_recovery"]:.1f}d)')
-    else:
-        ax1.set_xlim(start_date, today)
-
-    if stats_dict.get('target_limit_avg') and stats_dict.get('target_limit_min'):
-        avg_limit = stats_dict['target_limit_avg']
-        min_limit = stats_dict['target_limit_min']
-        five_days_ago = plot_hist.index[-5] if len(plot_hist) >= 5 else plot_hist.index[0]
-        ax1.plot([five_days_ago, future_end], [avg_limit, avg_limit], color='#e377c2', linestyle='-.', linewidth=2.5, zorder=6, label=f'Standard 5D Avg (${avg_limit:.2f})')
-        ax1.plot([five_days_ago, future_end], [min_limit, min_limit], color='red', linestyle=':', linewidth=2.5, zorder=6, label=f'VIX-Adj Min (${min_limit:.2f})')
-
-    ax1.set_title("Strategic Setup, Entry Limits & Support Levels", fontsize=12)
+    ax1.set_title("Price Action & Dividend Ex-Dates", fontsize=12)
     ax1.set_ylabel("Price ($)", fontsize=11)
     ax1.grid(True, linestyle='--', alpha=0.5)
-    ax1.legend(loc="upper left", framealpha=0.9, fontsize=9, ncol=2)
-    plt.setp(ax1.get_xticklabels(), visible=False)
 
-    if plot_bench is not None and not plot_bench.empty:
-        ax2.plot(plot_bench.index, plot_bench['Close'], label=f'Benchmark ETF ({stats_dict["benchmark_ticker"]})', color='#17becf', linewidth=2)
-        ax2.fill_between(plot_bench.index, plot_bench['Close'], plot_bench['Close'].min(), color='#17becf', alpha=0.1)
-        ax2.set_title(f"Macro Trend: {stats_dict.get('industry', 'Unknown')} ({stats_dict.get('sector', 'Unknown')})", fontsize=12)
-        ax2.set_ylabel("ETF Price", fontsize=11)
-        ax2.legend(loc="upper left", fontsize=10)
-    plt.setp(ax2.get_xticklabels(), visible=False)
-
+    # VIX Chart
     ax3.plot(plot_vix.index, plot_vix['Close'], label='VIX Level', color='#9467bd', linewidth=1.5)
     ax3.axhline(y=stats_dict['hist_avg_vix'], color='purple', linestyle='--', alpha=0.6, label='Hist Avg VIX')
-    ax3.axhline(y=20, color='orange', linestyle=':', alpha=0.8, label='Elevated Risk (>20)')
-    ax3.axhline(y=25, color='red', linestyle=':', alpha=0.8, label='High Risk (>25)')
-    ax3.set_title("Market Environment (VIX Context)", fontsize=12)
+    ax3.axhline(y=20, color='orange', linestyle=':', alpha=0.8, label='Risk Threshold (20)')
+    ax3.set_title("Market Volatility (VIX)", fontsize=12)
     ax3.set_ylabel("VIX", fontsize=11)
+    ax3.grid(True, linestyle='--', alpha=0.5)
     ax3.legend(loc="upper left", fontsize=10)
 
-    prof_sign = "+" if stats_dict['avg_net_profit'] >= 0 else "-"
+    # Stats Text
+    avg_net_profit = stats_dict['avg_net_profit']
+    avg_recovery_be = stats_dict['avg_recovery']
+    # We'll just use a subset for the box
     stats_text = (
-        f"📊 LIVE STATS\n"
+        f"DIVIDEND STRATEGY INSIGHTS\n"
         f"------------------------\n"
-        f"Industry:    {stats_dict.get('industry', 'Unknown')[:15]}...\n"
-        f"ETF Corr:    {stats_dict.get('correlation', 0.0):.2f}\n"
-        f"Move Type:   {stats_dict.get('move_profile', 'N/A')}\n"
-        f"Net Profit:  {prof_sign}${abs(stats_dict['avg_net_profit']):.2f}\n"
-        f"BE Recovery: {stats_dict['avg_recovery']:.1f} Days\n"
-        f"Drawdown:    -${stats_dict['avg_dip']:.2f}\n"
-        f"5D Vol:      ${stats_dict['avg_volatility']:.2f}\n"
-        f"Current VIX: {stats_dict['current_vix']:.1f}"
+        f"Avg Net P/L:    +${avg_net_profit:.2f}\n"
+        f"BE Recovery:     {avg_recovery_be:.1f} Days\n"
+        f"Limit Entry:     ${stats_dict['target_limit_avg']:.2f}\n"
+        f"VIX-Adj Limit:   ${stats_dict['target_limit_min']:.2f}"
     )
     props = dict(boxstyle='round', facecolor='#f8f9fa', alpha=0.9, edgecolor='gray')
     ax1.text(0.02, 0.05, stats_text, transform=ax1.transAxes, fontsize=11, verticalalignment='bottom', bbox=props, fontfamily='monospace', zorder=10)
@@ -256,31 +189,21 @@ def generate_plot_base64(ticker, stock_hist, vix_hist, dividends_hist, stats_dic
     ax3.xaxis.set_major_formatter(mdates.DateFormatter('%b %Y'))
     plt.xticks(rotation=45)
     plt.tight_layout(pad=1.0)
-
+    
     buf = io.BytesIO()
     plt.savefig(buf, format='png', dpi=100)
     plt.close('all')
     buf.seek(0)
-    image_base64 = base64.b64encode(buf.read()).decode('utf-8')
-    return image_base64
+    return base64.b64encode(buf.read()).decode('utf-8')
 
 def analyze_dividend_recovery_chart(ticker_input):
-    stock, valid_symbol, session = get_valid_ticker_data(ticker_input)
+    stock, valid_symbol = get_valid_ticker_data(ticker_input)
     if stock is None:
         return None
 
     # Using 2y instead of max to be faster and avoid rate limits
     hist = stock.history(period="2y", auto_adjust=False)
     dividends = stock.dividends
-
-    sector, industry = get_sector_info(valid_symbol, stock.info)
-    benchmark_ticker = get_benchmark_ticker(sector, industry)
-
-    benchmark = yf.Ticker(benchmark_ticker, session=session)
-    bench_hist = benchmark.history(period="2y", auto_adjust=False)
-
-    vix = yf.Ticker("^VIX", session=session)
-    vix_hist = vix.history(period="2y", auto_adjust=False)
 
     if dividends.empty:
         return None
@@ -291,12 +214,21 @@ def analyze_dividend_recovery_chart(ticker_input):
     if dividends.index.tz is None: dividends.index = dividends.index.tz_localize('UTC')
     else: dividends.index = dividends.index.tz_convert('UTC')
 
-    if vix_hist.index.tz is None: vix_hist.index = vix_hist.index.tz_localize('UTC')
-    else: vix_hist.index = vix_hist.index.tz_convert('UTC')
+    # Get Macro Data
+    info = stock.info
+    sector, industry = get_sector_info(valid_symbol, info)
+    benchmark_ticker = get_benchmark_ticker(sector, industry)
 
+    benchmark = yf.Ticker(benchmark_ticker)
+    bench_hist = benchmark.history(period="2y", auto_adjust=False)
     if not bench_hist.empty:
         if bench_hist.index.tz is None: bench_hist.index = bench_hist.index.tz_localize('UTC')
         else: bench_hist.index = bench_hist.index.tz_convert('UTC')
+
+    vix = yf.Ticker("^VIX")
+    vix_hist = vix.history(period="2y", auto_adjust=False)
+    if vix_hist.index.tz is None: vix_hist.index = vix_hist.index.tz_localize('UTC')
+    else: vix_hist.index = vix_hist.index.tz_convert('UTC')
 
     correlation = 0.0
     if not bench_hist.empty and not hist.empty:
@@ -327,6 +259,7 @@ def analyze_dividend_recovery_chart(ticker_input):
 
         pre_div_price = hist.iloc[ex_date_idx - 1]['Close']
         ex_day_open = hist.iloc[ex_date_idx]['Open']
+        ex_day_high = hist.iloc[ex_date_idx]['High']
         pre_div_date = hist.index[ex_date_idx - 1]
         
         try:
@@ -338,7 +271,8 @@ def analyze_dividend_recovery_chart(ticker_input):
         vix_levels_list.append(vix_level)
         price_drop = pre_div_price - ex_day_open
         after_tax_dividend = amount * 0.90
-        net_profits.append(after_tax_dividend - price_drop)
+        net_profit = after_tax_dividend - price_drop
+        net_profits.append(net_profit)
 
         lookback = 20
         start_idx = max(0, ex_date_idx - lookback)
@@ -350,7 +284,8 @@ def analyze_dividend_recovery_chart(ticker_input):
             min_price_date = window_data['Close'].idxmin()
             rally_start_dt = min_price_date
             rally_start_px = window_data['Close'].min()
-            run_up_days_list.append((date - min_price_date).days)
+            days_before = (date - min_price_date).days
+            run_up_days_list.append(days_before)
 
             if len(window_data) > 1:
                 daily_diffs = window_data['Close'].diff()
@@ -381,29 +316,70 @@ def analyze_dividend_recovery_chart(ticker_input):
         if not window_data_5d.empty and len(window_data_5d) > 1:
             div_entry_dt = window_data_5d['Close'].idxmin()
             div_entry_px = window_data_5d['Close'].min()
-            late_entry_days_list.append((date - div_entry_dt).days)
+            days_before_5d = (date - div_entry_dt).days
+            late_entry_days_list.append(days_before_5d)
             
             price_5d_ago = window_data_5d['Close'].iloc[0]
-            momentum_5d_list.append(pre_div_price - price_5d_ago)
+            momentum_dlr = pre_div_price - price_5d_ago
+            momentum_5d_list.append(momentum_dlr)
             
             min_l = window_data_5d['Low'].min()
             volatility_5d_list.append(window_data_5d['High'].max() - min_l)
             
             dip_from_entry = price_5d_ago - min_l
             drawdowns_5d_list.append(dip_from_entry if dip_from_entry > 0 else 0.0)
+        else:
+            days_before_5d = "N/A"
+            momentum_dlr = 0.0
 
-        historical_cycles.append({
-            'ex_date': date, 'pre_div_date': pre_div_date, 'pre_div_price': pre_div_price,
-            'rally_start_date': rally_start_dt, 'rally_start_price': rally_start_px,
-            'sweet_dt': sweet_dt, 'sweet_px': sweet_px, 'div_entry_date': div_entry_dt, 'div_entry_price': div_entry_px
-        })
+        if 'days_before' not in locals():
+            days_before = "N/A"
 
+        days_to_recover_be = 999
+        days_to_recover_full = 999
         future_data = hist.iloc[ex_date_idx:]
         breakeven_target = pre_div_price - after_tax_dividend
+        
+        recovered_be = False
+        recovered_full = False
+        
         for i in range(len(future_data)):
-            if future_data.iloc[i]['Close'] >= breakeven_target:
+            current_close = future_data.iloc[i]['Close']
+            
+            if not recovered_be and current_close >= breakeven_target:
+                days_to_recover_be = i
                 recovery_days_list.append(i)
+                recovered_be = True
+                
+            if not recovered_full and current_close >= pre_div_price:
+                days_to_recover_full = i
+                recovered_full = True
+                
+            if recovered_be and recovered_full:
                 break
+
+        # Append to cycles
+        historical_cycles.append({
+            'ex_date': date,
+            'pre_div_date': pre_div_date,
+            'pre_div_price': pre_div_price,
+            'ex_day_open': ex_day_open,
+            'ex_day_high': ex_day_high,
+            'div_amount': amount,
+            'net_profit': net_profit,
+            'vix_level': vix_level,
+            'five_d_trend': momentum_dlr,
+            'rally_ent_days': days_before,
+            'div_ent_days': days_before_5d,
+            'be_recovery': days_to_recover_be,
+            'full_recovery': days_to_recover_full,
+            'rally_start_date': rally_start_dt,
+            'rally_start_price': rally_start_px,
+            'sweet_dt': sweet_dt,
+            'sweet_px': sweet_px,
+            'div_entry_date': div_entry_dt,
+            'div_entry_price': div_entry_px
+        })
 
     valid_recoveries = [d for d in recovery_days_list if d != 999]
     avg_recovery = np.mean(valid_recoveries) if valid_recoveries else 999
@@ -419,9 +395,9 @@ def analyze_dividend_recovery_chart(ticker_input):
 
     spike_pct = (np.mean(momentum_spike_ratios) if momentum_spike_ratios else 0) * 100
     if spike_pct == 0: move_profile = "N/A"
-    elif spike_pct <= 40: move_profile = "Continuous 🌊"
-    elif spike_pct <= 70: move_profile = "Stepped 📈"
-    else: move_profile = "Spike ⚡"
+    elif spike_pct <= 40: move_profile = "Continuous"
+    elif spike_pct <= 70: move_profile = "Stepped"
+    else: move_profile = "Spike"
 
     live_5d_data = hist.tail(5)
     current_price = hist['Close'].iloc[-1]
@@ -429,9 +405,8 @@ def analyze_dividend_recovery_chart(ticker_input):
     live_5d_min_low = live_5d_data['Low'].min() if not live_5d_data.empty else current_price
 
     next_ex_date, _ = get_upcoming_dividend(stock, dividends)
-    today_date = pd.Timestamp.now().date()
     
-    target_entry_date_20d, target_entry_date_sweet, target_entry_date_5d, rally_left = None, None, None, None
+    target_entry_date_20d, target_entry_date_sweet, target_entry_date_5d = None, None, None
     if next_ex_date:
         target_entry_date_20d = next_ex_date - timedelta(days=int(avg_entry_days))
         target_entry_date_sweet = next_ex_date - timedelta(days=int(avg_sweet_days))
@@ -440,12 +415,29 @@ def analyze_dividend_recovery_chart(ticker_input):
     stats_dict = {
         'avg_net_profit': avg_net_profit, 'avg_recovery': avg_recovery, 'avg_momentum': avg_momentum,
         'avg_volatility': avg_volatility, 'avg_dip': avg_dip, 'current_vix': current_vix,
-        'hist_avg_vix': avg_vix, 'next_ex_date': next_ex_date, 'target_rally_date': target_entry_date_20d,
-        'target_sweet_date': target_entry_date_sweet, 'target_div_date': target_entry_date_5d,
-        'rally_left': rally_left, 'target_limit_avg': live_5d_avg_low, 'target_limit_min': live_5d_min_low,
+        'hist_avg_vix': avg_vix, 'next_ex_date': str(next_ex_date) if next_ex_date else None,
+        'target_rally_date': str(target_entry_date_20d) if target_entry_date_20d else None,
+        'target_sweet_date': str(target_entry_date_sweet) if target_entry_date_sweet else None,
+        'target_div_date': str(target_entry_date_5d) if target_entry_date_5d else None,
+        'target_limit_avg': live_5d_avg_low, 'target_limit_min': live_5d_min_low,
         'historical_cycles': historical_cycles, 'sector': sector, 'industry': industry,
-        'benchmark_ticker': benchmark_ticker, 'benchmark_hist': bench_hist, 'correlation': correlation,
-        'move_profile': move_profile
+        'benchmark_ticker': benchmark_ticker, 'correlation': correlation,
+        'move_profile': move_profile, 'current_price': current_price,
+        'bench_5d_trend': ((bench_hist['Close'].iloc[-1] / bench_hist['Close'].iloc[-5]) - 1) * 100 if len(bench_hist) >= 5 else 0
     }
     
-    return generate_plot_base64(valid_symbol, hist, vix_hist, dividends, stats_dict)
+    # Process historical_cycles to be JSON serializable
+    for cycle in stats_dict['historical_cycles']:
+        for k, v in cycle.items():
+            if isinstance(v, (pd.Timestamp, datetime)):
+                try: cycle[k] = str(v.date())
+                except: cycle[k] = str(v)
+            elif isinstance(v, float) and pd.isna(v):
+                cycle[k] = None
+
+    image_b64 = generate_plot_base64(valid_symbol, hist, vix_hist, dividends, stats_dict)
+    
+    return {
+        "image": image_b64,
+        "stats": stats_dict
+    }
