@@ -11,6 +11,7 @@ from datetime import datetime
 import io
 import base64
 from curl_cffi import requests
+from backend.utils.cache_helper import get_cached_macro_data
 
 # yf_session = requests.Session(impersonate="chrome110") # Disabling manual session as per YF error
 
@@ -34,9 +35,8 @@ SECTOR_ETF_MAP = {
 def get_sector_info(user_ticker, info_dict):
     sector = info_dict.get('sector')
     industry = info_dict.get('industry')
-    if not sector:
-        base_ticker = user_ticker.split('-')[0].split('.')[0]
         try:
+            base_ticker = user_ticker.split('-')[0].split('.')[0]
             base_info = yf.Ticker(base_ticker).info
             sector = base_info.get('sector', 'Unknown')
             industry = base_info.get('industry', 'Unknown')
@@ -157,11 +157,11 @@ def analyze_rebalancing_chart(ticker_input):
     sector, industry = get_sector_info(valid_symbol, stock.info)
     benchmark_ticker = get_benchmark_ticker(sector, industry)
 
-    vix = yf.Ticker("^VIX")
-    vix_hist = vix.history(period="2y", auto_adjust=False)
+    vix_hist = get_cached_macro_data("^VIX")
+    # Also reuse sector data if possible? No, sector info is already fetched.
 
     if hist.index.tz is not None: hist.index = hist.index.tz_localize(None)
-    if vix_hist.index.tz is not None: vix_hist.index = vix_hist.index.tz_localize(None)
+    # vix_hist coming from the cache is already tz-handled
 
     hist['YearMonth'] = hist.index.to_period('M')
     eom_dates = hist.groupby('YearMonth').apply(lambda x: x.index[-1]).values

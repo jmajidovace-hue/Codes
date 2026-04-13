@@ -9,6 +9,7 @@ import matplotlib.dates as mdates
 from datetime import datetime, timedelta
 import io
 import base64
+from backend.utils.cache_helper import get_cached_macro_data
 
 warnings.filterwarnings("ignore")
 
@@ -50,16 +51,12 @@ SECTOR_ETF_MAP = {
     "Communication Services": "XLC"
 }
 
-def get_sector_info(user_ticker, info_dict):
-    sector = info_dict.get('sector')
-    industry = info_dict.get('industry')
-
     if not sector:
-        base_ticker = user_ticker.split('-')[0].split('.')[0]
         try:
-            base_info = yf.Ticker(base_ticker).info
-            sector = base_info.get('sector', 'Unknown')
-            industry = base_info.get('industry', 'Unknown')
+            base_ticker = user_ticker.split('-')[0].split('.')[0]
+            base_stock = yf.Ticker(base_ticker)
+            sector = base_stock.info.get('sector', 'Unknown')
+            industry = base_stock.info.get('industry', 'Unknown')
         except:
             sector = 'Unknown'
             industry = 'Unknown'
@@ -202,33 +199,24 @@ def analyze_dividend_recovery_chart(ticker_input):
         return None
 
     # Using 2y instead of max to be faster and avoid rate limits
-    hist = stock.history(period="2y", auto_adjust=False)
-    dividends = stock.dividends
+    # actions=True fetches dividends in the same request as history
+    hist = stock.history(period="2y", auto_adjust=False, actions=True)
+    dividends = hist['Dividends']
+    dividends = dividends[dividends > 0]
 
-    if dividends.empty:
+    if hist.empty or dividends.empty:
         return None
 
     if hist.index.tz is None: hist.index = hist.index.tz_localize('UTC')
     else: hist.index = hist.index.tz_convert('UTC')
 
-    if dividends.index.tz is None: dividends.index = dividends.index.tz_localize('UTC')
-    else: dividends.index = dividends.index.tz_convert('UTC')
-
-    # Get Macro Data
+    # Get Macro Data via Cache
     info = stock.info
     sector, industry = get_sector_info(valid_symbol, info)
     benchmark_ticker = get_benchmark_ticker(sector, industry)
 
-    benchmark = yf.Ticker(benchmark_ticker)
-    bench_hist = benchmark.history(period="2y", auto_adjust=False)
-    if not bench_hist.empty:
-        if bench_hist.index.tz is None: bench_hist.index = bench_hist.index.tz_localize('UTC')
-        else: bench_hist.index = bench_hist.index.tz_convert('UTC')
-
-    vix = yf.Ticker("^VIX")
-    vix_hist = vix.history(period="2y", auto_adjust=False)
-    if vix_hist.index.tz is None: vix_hist.index = vix_hist.index.tz_localize('UTC')
-    else: vix_hist.index = vix_hist.index.tz_convert('UTC')
+    bench_hist = get_cached_macro_data(benchmark_ticker)
+    vix_hist = get_cached_macro_data("^VIX")
 
     correlation = 0.0
     if not bench_hist.empty and not hist.empty:
