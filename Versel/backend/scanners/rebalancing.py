@@ -6,6 +6,7 @@ import warnings
 import asyncio
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from curl_cffi import requests
+import time
 
 # Set up a requests session using curl_cffi to mimic a REAL browser's TLS fingerprint.
 # This prevents Vercel IPs from being blocked by Yahoo's Cloudflare protection.
@@ -134,12 +135,13 @@ async def scan_rebalancing():
     clean_data = {}
     excluded_count = 0
 
-    # Process tickers concurrently to bypass Vercel's strict 10s-60s Serverless timeout
-    with ThreadPoolExecutor(max_workers=10) as executor:
+    # Process tickers concurrently but with fewer workers to avoid 429s
+    with ThreadPoolExecutor(max_workers=3) as executor:
         futures = {executor.submit(fetch_rebalancing_ticker, ticker, start_date, end_date): ticker for ticker in yf_tickers}
         completed = 0
         
         for future in as_completed(futures):
+            time.sleep(0.05) # Small jitter delay
             try:
                 ticker, status, result = future.result()
                 

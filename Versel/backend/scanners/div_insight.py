@@ -7,6 +7,7 @@ import asyncio
 import io
 from curl_cffi import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import time
 
 # Set up a requests session using curl_cffi to mimic a REAL browser's TLS fingerprint.
 # This prevents Vercel IPs from being blocked by Yahoo's Cloudflare protection.
@@ -104,7 +105,8 @@ def get_history_silent_and_smart(user_ticker):
 
             if not hist.empty:
                 # Use 2y instead of max for scanning speed and lower ban risk
-                full_hist = stock.history(period="2y", auto_adjust=False)
+                # actions=True fetches dividends in same call
+                full_hist = stock.history(period="2y", auto_adjust=False, actions=True)
                 if full_hist.empty:
                     continue
                 return stock, full_hist
@@ -155,9 +157,9 @@ def analyze_ticker(user_ticker_name, hist, stock_obj):
     if hist.index.tz is None: hist.index = hist.index.tz_localize('UTC')
     else: hist.index = hist.index.tz_convert('UTC')
 
-    dividends = stock_obj.dividends
-    if dividends.index.tz is None: dividends.index = dividends.index.tz_localize('UTC')
-    else: dividends.index = dividends.index.tz_convert('UTC')
+    # Extract dividends from the history dataframe instead of a new call
+    dividends = hist['Dividends']
+    dividends = dividends[dividends > 0]
 
     recovery_days_list_be = []
     recovery_days_list_full = []
@@ -394,13 +396,14 @@ async def scan_div_insight():
     skipped_low_history = []
     skipped_over_price = []
 
-    # Process tickers concurrently to bypass Vercel's strict 10s-60s Serverless timeout
-    # Reduced max_workers to 10 to avoid triggering Yahoo burst rate limits
-    with ThreadPoolExecutor(max_workers=10) as executor:
+    # Process tickers concurrently but with fewer workers to avoid 429s
+    # Added small jitter delay between requests
+    with ThreadPoolExecutor(max_workers=3) as executor:
         futures = {executor.submit(process_single_ticker, ticker): ticker for ticker in VALID_TICKERS}
         completed = 0
         
         for future in as_completed(futures):
+            time.sleep(0.05) # Small jitter delay
             try:
                 ticker, status, stats = future.result()
                 
