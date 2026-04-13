@@ -67,7 +67,6 @@ def generate_rebalancing_plot_base64(ticker, stock_hist, vix_hist, stats_dict):
     plot_hist = stock_hist.tail(252).copy()
     start_date = plot_hist.index[0]
     plot_vix = vix_hist.loc[start_date:].copy()
-    plot_bench = stats_dict['benchmark_hist'].loc[start_date:].copy() if stats_dict.get('benchmark_hist') is not None else None
     historical_cycles = stats_dict.get('historical_cycles', [])
 
     today = pd.Timestamp.now()
@@ -78,7 +77,7 @@ def generate_rebalancing_plot_base64(ticker, stock_hist, vix_hist, stats_dict):
     ax2 = fig.add_subplot(gs[1], sharex=ax1)
     ax3 = fig.add_subplot(gs[2], sharex=ax1)
 
-    fig.suptitle(f"🎯 EOM Rebalancing Map: {ticker}", fontsize=18, fontweight='bold')
+    fig.suptitle(f"\ud83c\udfaf EOM Rebalancing Map: {ticker}", fontsize=18, fontweight='bold')
 
     up = plot_hist[plot_hist.Close >= plot_hist.Open]
     down = plot_hist[plot_hist.Close < plot_hist.Open]
@@ -95,14 +94,15 @@ def generate_rebalancing_plot_base64(ticker, stock_hist, vix_hist, stats_dict):
 
     added_legend = False
     for cycle in historical_cycles:
-        if cycle['eom_date'] >= start_date:
-            ax1.axvline(x=cycle['eom_date'], color='grey', linestyle=':', alpha=0.4, zorder=1, label='Hist. EOM Day' if not added_legend else "")
+        cy_date = pd.to_datetime(cycle['eom_date'])
+        if cy_date >= start_date:
+            ax1.axvline(x=cy_date, color='grey', linestyle=':', alpha=0.4, zorder=1, label='Hist. EOM Day' if not added_legend else "")
             if cycle['eom_move'] <= -0.125:
-                ax1.scatter(cycle['eom_date'], cycle['eom_price'], color='red', marker='v', s=80, zorder=5, label='EOM Dump' if not added_legend else "")
+                ax1.scatter(cy_date, cycle['eom_price'], color='red', marker='v', s=80, zorder=5, label='EOM Dump' if not added_legend else "")
             elif cycle['pre_move'] <= -0.125:
-                ax1.scatter(cycle['eom_date'] - pd.Timedelta(days=3), cycle['pre_price'], color='darkred', marker='v', s=60, alpha=0.6, zorder=5, label='Pre-EOM Dump' if not added_legend else "")
+                ax1.scatter(cy_date - pd.Timedelta(days=3), cycle['pre_price'], color='darkred', marker='v', s=60, alpha=0.6, zorder=5, label='Pre-EOM Dump' if not added_legend else "")
             if cycle['eom_move'] >= 0.125:
-                ax1.scatter(cycle['eom_date'], cycle['eom_price'], color='green', marker='^', s=80, zorder=5, label='EOM Spike' if not added_legend else "")
+                ax1.scatter(cy_date, cycle['eom_price'], color='green', marker='^', s=80, zorder=5, label='EOM Spike' if not added_legend else "")
             added_legend = True
 
     future_end = today
@@ -119,15 +119,6 @@ def generate_rebalancing_plot_base64(ticker, stock_hist, vix_hist, stats_dict):
     ax1.legend(loc="upper left", framealpha=0.9, fontsize=9, ncol=3)
     plt.setp(ax1.get_xticklabels(), visible=False)
 
-    if plot_bench is not None and not plot_bench.empty:
-        ax2.plot(plot_bench.index, plot_bench['Close'], label=f'Benchmark ETF ({stats_dict["benchmark_ticker"]})', color='#17becf', linewidth=2)
-        ax2.fill_between(plot_bench.index, plot_bench['Close'], plot_bench['Close'].min(), color='#17becf', alpha=0.1)
-        ax2.set_title(f"Macro Trend: {stats_dict.get('industry', 'Unknown')} ({stats_dict.get('sector', 'Unknown')})", fontsize=12)
-        ax2.set_ylabel("ETF Price", fontsize=11)
-        ax2.grid(True, linestyle='--', alpha=0.5)
-        ax2.legend(loc="upper left", fontsize=10)
-    plt.setp(ax2.get_xticklabels(), visible=False)
-
     ax3.plot(plot_vix.index, plot_vix['Close'], label='VIX Level', color='#9467bd', linewidth=1.5)
     ax3.axhline(y=stats_dict['hist_avg_vix'], color='purple', linestyle='--', alpha=0.6, label='Hist Avg VIX')
     ax3.axhline(y=20, color='orange', linestyle=':', alpha=0.8, label='Elevated Risk (>20)')
@@ -137,7 +128,7 @@ def generate_rebalancing_plot_base64(ticker, stock_hist, vix_hist, stats_dict):
     ax3.legend(loc="upper left", fontsize=10)
 
     stats_text = (
-        f"📊 REBALANCING PROFILE\n"
+        f"\ud83d\udcca REBALANCING PROFILE\n"
         f"------------------------\n"
         f"Primary Action: {stats_dict.get('move_profile', 'Unknown')}\n"
         f"Avg EOM Move:   {stats_dict.get('avg_eom_move', 0.0):+.2f}\n"
@@ -158,28 +149,21 @@ def generate_rebalancing_plot_base64(ticker, stock_hist, vix_hist, stats_dict):
     plt.savefig(buf, format='png', dpi=100)
     plt.close('all')
     buf.seek(0)
-    image_base64 = base64.b64encode(buf.read()).decode('utf-8')
-    return image_base64
+    return base64.b64encode(buf.read()).decode('utf-8')
 
 def analyze_rebalancing_chart(ticker_input):
     stock, valid_symbol = get_valid_ticker_data(ticker_input)
     if stock is None: return None
 
-    # Using 2y instead of 3y to reduce data load and avoid bans
     hist = stock.history(period="2y", auto_adjust=False)
     sector, industry = get_sector_info(valid_symbol, stock.info)
     benchmark_ticker = get_benchmark_ticker(sector, industry)
-
-    benchmark = yf.Ticker(benchmark_ticker, session=yf_session)
-    bench_hist = benchmark.history(period="2y", auto_adjust=False)
 
     vix = yf.Ticker("^VIX", session=yf_session)
     vix_hist = vix.history(period="2y", auto_adjust=False)
 
     if hist.index.tz is not None: hist.index = hist.index.tz_localize(None)
     if vix_hist.index.tz is not None: vix_hist.index = vix_hist.index.tz_localize(None)
-    if not bench_hist.empty and bench_hist.index.tz is not None:
-        bench_hist.index = bench_hist.index.tz_localize(None)
 
     hist['YearMonth'] = hist.index.to_period('M')
     eom_dates = hist.groupby('YearMonth').apply(lambda x: x.index[-1]).values
@@ -212,8 +196,10 @@ def analyze_rebalancing_chart(ticker_input):
             vol_eom = hist['Volume'].iloc[loc]
 
             vol_post_start, vol_post_end = loc + 1, loc + 4
-            if vol_post_start < len(hist): vol_post = hist['Volume'].iloc[vol_post_start:min(vol_post_end, len(hist))].mean()
-            else: vol_post = float('nan')
+            if vol_post_start < len(hist): 
+                vol_post = hist['Volume'].iloc[vol_post_start:min(vol_post_end, len(hist))].mean()
+            else: 
+                vol_post = float('nan')
 
             if not pd.isna(vol_base) and vol_base > 0:
                 total_base_vols.append(vol_base)
@@ -231,24 +217,37 @@ def analyze_rebalancing_chart(ticker_input):
                     if vix_idx >= 0: vix_levels.append(vix_hist.iloc[vix_idx]['Close'])
             except Exception: pass
 
+            rec_days = "..."
             if eom_move_dlr <= -move_threshold:
                 dumps += 1
+                rec_days = ">14d"
                 for d in range(1, 15):
                     if loc + d < len(hist) and hist['Close'].iloc[loc + d] >= t1_price:
                         total_recoveries.append(d)
+                        rec_days = f"{d}d"
                         break
             elif eom_move_dlr >= move_threshold:
                 spikes += 1
+                rec_days = ">14d"
                 for d in range(1, 15):
                     if loc + d < len(hist) and hist['Close'].iloc[loc + d] <= t1_price:
                         total_recoveries.append(d)
+                        rec_days = f"{d}d"
                         break
 
             historical_cycles.append({
-                'eom_date': hist.index[loc], 'pre_price': t4_price, 'eom_price': eom_price,
-                'pre_move': prior_move_dlr, 'eom_move': eom_move_dlr
+                'eom_date': hist.index[loc],
+                'pre_price': t4_price,
+                'eom_price': eom_price,
+                'pre_move': prior_move_dlr,
+                'eom_move': eom_move_dlr,
+                'vol_base': vol_base,
+                'vol_eom': vol_eom,
+                'vol_post': vol_post if not pd.isna(vol_post) else None,
+                'recovery': rec_days
             })
-        except Exception: continue
+        except Exception: 
+            continue
 
     today = pd.Timestamp.now()
     next_eom = today + BMonthEnd(0)
@@ -262,19 +261,32 @@ def analyze_rebalancing_chart(ticker_input):
     avg_vix = np.nanmean(vix_levels) if vix_levels else 15.0
     current_vix = vix_hist['Close'].iloc[-1]
 
-    if dumps > spikes and dumps >= 3: profile = "Predominantly DUMPED at EOM 🩸"
-    elif spikes > dumps and spikes >= 3: profile = "Predominantly ACCUMULATED at EOM 🚀"
-    elif dumps > 0 or spikes > 0: profile = "Mixed / Unpredictable ⚖️"
-    else: profile = "No Significant Action 😴"
+    if dumps > spikes and dumps >= 3: profile = "Predominantly DUMPED at EOM \ud83e\ude78"
+    elif spikes > dumps and spikes >= 3: profile = "Predominantly ACCUMULATED at EOM \ud83d\ude80"
+    elif dumps > 0 or spikes > 0: profile = "Mixed / Unpredictable \u2696\ufe0f"
+    else: profile = "No Significant Action \ud83d\ude34"
 
     stats_dict = {
         'industry': industry, 'sector': sector, 'benchmark_ticker': benchmark_ticker,
-        'benchmark_hist': bench_hist, 'move_profile': profile, 'avg_eom_move': avg_eom_move,
+        'move_profile': profile, 'avg_eom_move': avg_eom_move,
         'avg_base_vol': avg_base if avg_base > 0 else float('nan'),
         'avg_eom_vol': avg_eom_vol if avg_base > 0 else float('nan'),
         'avg_post_vol': avg_post_vol if avg_base > 0 else float('nan'),
         'avg_recovery': avg_rec, 'current_vix': current_vix, 'hist_avg_vix': avg_vix,
-        'next_eom_date': next_eom, 'historical_cycles': historical_cycles
+        'next_eom_date': str(next_eom.date()), 'historical_cycles': historical_cycles,
+        'days_away': (next_eom.date() - today.date()).days
     }
+    
+    for cycle in stats_dict['historical_cycles']:
+        for k, v in cycle.items():
+            if isinstance(v, (pd.Timestamp, datetime)):
+                cycle[k] = str(v.date())
+            elif isinstance(v, float) and pd.isna(v):
+                cycle[k] = None
 
-    return generate_rebalancing_plot_base64(valid_symbol, hist, vix_hist, stats_dict)
+    image_b64 = generate_rebalancing_plot_base64(valid_symbol, hist, vix_hist, stats_dict)
+    
+    return {
+        "image": image_b64,
+        "stats": stats_dict
+    }

@@ -198,6 +198,7 @@ def analyze_dividend_recovery_chart(ticker_input):
 
         pre_div_price = hist.iloc[ex_date_idx - 1]['Close']
         ex_day_open = hist.iloc[ex_date_idx]['Open']
+        ex_day_high = hist.iloc[ex_date_idx]['High']
         pre_div_date = hist.index[ex_date_idx - 1]
         
         try:
