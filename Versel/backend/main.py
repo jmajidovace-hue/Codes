@@ -3,12 +3,25 @@ from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 import os
+import traceback
 
 from backend.scanners.div_insight import scan_div_insight
 from backend.scanners.rebalancing import scan_rebalancing
 from backend.charts.div_finder import analyze_dividend_recovery_chart
 from backend.charts.rebalance_mapper import analyze_rebalancing_chart
 from backend.calculators.trade_calc import calculate_smi, calculate_long_commission
+
+import yfinance as yf
+import os
+
+# Set TZ cache to local directory to reduce network calls (yfinance best practice)
+try:
+    cache_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".yf_cache")
+    if not os.path.exists(cache_path):
+        os.makedirs(cache_path)
+    yf.set_tz_cache_location(cache_path)
+except Exception:
+    pass
 
 app = FastAPI(title="Trading Insights API")
 
@@ -56,7 +69,7 @@ async def get_div_finder_chart(ticker: str):
             "stats": result["stats"]
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=traceback.format_exc())
 
 @app.get("/api/chart/rebalance-mapper")
 async def get_rebalance_mapper_chart(ticker: str):
@@ -71,7 +84,7 @@ async def get_rebalance_mapper_chart(ticker: str):
             "stats": result["stats"]
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=traceback.format_exc())
 
 @app.post("/api/calc/smi")
 async def post_smi_calc(
