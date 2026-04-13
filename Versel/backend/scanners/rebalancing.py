@@ -94,7 +94,7 @@ def calculate_volumes(df, loc):
 
 def fetch_rebalancing_ticker(ticker, start_date, end_date):
     try:
-        tkr_obj = yf.Ticker(ticker, session=yf_session)
+        tkr_obj = yf.Ticker(ticker)
         shares_out = None
         try:
             shares_out = tkr_obj.fast_info.get('shares')
@@ -108,7 +108,7 @@ def fetch_rebalancing_ticker(ticker, start_date, end_date):
             return ticker, "excluded", None
 
         # Standard yf.download using the session to prevent blocks
-        temp_df = yf.download(ticker, start=start_date, end=end_date, actions=True, progress=False, session=yf_session)
+        temp_df = yf.download(ticker, start=start_date, end=end_date, actions=True, progress=False)
         if isinstance(temp_df.columns, pd.MultiIndex):
             temp_df.columns = temp_df.columns.get_level_values(0)
 
